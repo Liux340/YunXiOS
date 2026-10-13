@@ -30,7 +30,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    private init() {
+    init() {
         AppStateToast.delegate = self
     }
 
