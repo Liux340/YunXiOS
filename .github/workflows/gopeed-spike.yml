@@ -1,0 +1,107 @@
+name: Gopeed Engine Spike (iOS)
+
+# 试探性工作流：仅验证 Gopeed 的 Go 引擎能否用 gomobile 编成 iOS 可用的 xcframework。
+# 不影响 build-ipa.yml（未签名 IPA 的正式构建）。
+# 目的：
+#   1) 确认 macos runner 上 gomobile bind -target=ios 能否跑通
+#   2) 量出 Libgopeed.xcframework 的体积（决定 IPA 会涨多少）
+#   3) 导出 gomobile 生成的 ObjC 头，确认 Swift 侧可调用的 API 面
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/gopeed-spike.yml'
+
+jobs:
+  spike:
+    name: Build Libgopeed.xcframework
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcode-select -p
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: false
+
+      - name: Show Go env
+        run: go version && go env GOPATH GOMODCACHE GOTOOLCHAIN
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Clone Gopeed
+        run: |
+          git clone --depth 1 https://github.com/GopeedLab/gopeed.git gopeed
+          cd gopeed
+          echo "--- 最近提交 ---"; git log --oneline -1
+          echo "--- go.mod 头部 ---"; head -8 go.mod
+
+      - name: gomobile init
+        continue-on-error: true
+        run: gomobile init
+
+      - name: Build xcframework (iOS)
+        run: |
+          set -o pipefail
+          cd gopeed
+          mkdir -p out
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          time gomobile bind \
+            -tags nosqlite \
+            -ldflags="-w -s" \
+            -o out/Libgopeed.xcframework \
+            -target=ios \
+            github.com/GopeedLab/gopeed/bind/mobile \
+            2>&1 | tee out/build.log
+
+      - name: Measure size
+        run: |
+          echo "==================== 体积 ===================="
+          du -sh gopeed/out/Libgopeed.xcframework || true
+          echo "--- 各切片 ---"
+          du -sh gopeed/out/Libgopeed.xcframework/* 2>/dev/null || true
+          echo "--- 静态库与 framework 内文件 ---"
+          find gopeed/out/Libgopeed.xcframework -type f -exec ls -lh {} \; 2>/dev/null | awk '{print $5, $9}'
+          echo "--- 总字节数（用于估算 IPA 增量）---"
+          du -sb gopeed/out/Libgopeed.xcframework 2>/dev/null || du -sk gopeed/out/Libgopeed.xcframework
+
+      - name: Dump generated Objective-C API header
+        run: |
+          echo "==================== objc.h 中的导出符号 ===================="
+          HDR=$(find gopeed/out/Libgopeed.xcframework -name "*.objc.h" | head -1)
+          echo "头文件: $HDR"
+          if [ -n "$HDR" ]; then
+            grep -E "^(@interface|@protocol|\+ \(|- \(" "$HDR" | head -60
+          else
+            echo "未找到 .objc.h，列出所有头文件："
+            find gopeed/out/Libgopeed.xcframework -name "*.h" -exec echo {} \;
+          fi
+
+      - name: Upload xcframework artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Libgopeed.xcframework
+          path: gopeed/out/Libgopeed.xcframework
+          if-no-files-found: warn
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gopeed-build-log
+          path: gopeed/out/build.log
+          if-no-files-found: warn
