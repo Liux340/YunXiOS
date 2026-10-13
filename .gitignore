@@ -1,0 +1,17 @@
+# Xcode / XcodeGen
+*.xcodeproj/
+*.xcworkspace/
+!*.xcodeproj/project.pbxproj
+build/
+DerivedData/
+*.xcarchive
+*.ipa
+
+# macOS
+.DS_Store
+
+# 本地配置
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+.env

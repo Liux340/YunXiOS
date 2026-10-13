@@ -1,0 +1,111 @@
+name: Build Unsigned IPA
+
+# 产出未签名 .ipa（用于 Sideloadly / AltStore / 爱思助手等工具二次签名后安装）
+# - push / PR：构建并上传产物
+# - 手动触发：在 Actions 页面直接运行
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-ipa:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 40
+
+    env:
+      PROJECT_NAME: YunXiOS
+      SCHEME_NAME: YunXiOS
+      IPA_NAME: YunXiOS-unsigned.ipa
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          swift --version
+
+      - name: Install XcodeGen
+        run: |
+          brew update >/dev/null 2>&1 || true
+          brew install xcodegen
+
+      - name: Generate Xcode project
+        run: |
+          xcodegen generate --spec project.yml
+          ls -la
+
+      - name: Build archive (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project "${PROJECT_NAME}.xcodeproj" \
+            -scheme "${SCHEME_NAME}" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/${PROJECT_NAME}.xcarchive \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            2>&1 | tee build/archive.log
+
+      - name: Show errors on failure
+        if: failure()
+        run: |
+          echo "==================== 编译错误 ===================="
+          grep -E "error:|❌" build/archive.log | head -60 || true
+
+      - name: Package unsigned IPA
+        run: |
+          set -e
+          APP_PATH="build/${PROJECT_NAME}.xcarchive/Products/Applications/${PROJECT_NAME}.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "未找到 .app：$APP_PATH"
+            find build -maxdepth 6 -name "*.app" -print
+            exit 1
+          fi
+          rm -rf build/Payload
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+          # 移除可能残留的签名目录，确保确为未签名包
+          rm -rf "build/Payload/${PROJECT_NAME}.app/_CodeSignature" || true
+          cd build
+          zip -qry "${IPA_NAME}" Payload
+          echo "IPA 大小：$(du -h ${IPA_NAME} | cut -f1)"
+
+      - name: Verify IPA structure
+        run: |
+          set -e
+          cd build
+          unzip -l "${IPA_NAME}" | grep -q "Payload/${PROJECT_NAME}.app/Info.plist" \
+            && echo "✅ IPA 结构正确" \
+            || (echo "❌ IPA 结构异常" && exit 1)
+          unzip -l "${IPA_NAME}" | grep -q "Payload/${PROJECT_NAME}.app/${PROJECT_NAME}" \
+            && echo "✅ 可执行文件已打包" \
+            || (echo "❌ 缺少可执行文件" && exit 1)
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PROJECT_NAME }}-unsigned-ipa
+          path: build/${{ env.IPA_NAME }}
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build/archive.log
+          if-no-files-found: ignore
