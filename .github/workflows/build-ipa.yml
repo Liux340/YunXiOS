@@ -45,6 +45,8 @@ jobs:
       - name: Build archive (unsigned)
         run: |
           set -o pipefail
+          # 必须先建目录：tee 无法创建不存在的父目录，配合 pipefail 会让整步直接失败
+          mkdir -p build
           xcodebuild archive \
             -project "${PROJECT_NAME}.xcodeproj" \
             -scheme "${SCHEME_NAME}" \
@@ -64,7 +66,11 @@ jobs:
         if: failure()
         run: |
           echo "==================== 编译错误 ===================="
-          grep -E "error:|❌" build/archive.log | head -60 || true
+          if [ -f build/archive.log ]; then
+            grep -E "error:|❌" build/archive.log | head -80 || true
+          else
+            echo "未生成 archive.log；说明失败发生在 xcodebuild 启动前"
+          fi
 
       - name: Package unsigned IPA
         run: |
