@@ -54,6 +54,15 @@ jobs:
         continue-on-error: true
         run: gomobile init
 
+      - name: Register x/mobile as tool dependency
+        run: |
+          # 新版 gomobile 要求目标模块的 go.mod 里存在 golang.org/x/mobile 工具依赖，
+          # 否则 bind 直接报 "missing golang.org/x/mobile dependency"
+          cd gopeed
+          go get -tool golang.org/x/mobile/cmd/gobind
+          echo "--- go.mod 中的 tool 段 ---"
+          grep -A4 "^tool" go.mod || true
+
       - name: Build xcframework (iOS)
         run: |
           set -o pipefail
