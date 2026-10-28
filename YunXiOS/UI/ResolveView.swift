@@ -13,6 +13,8 @@ struct ResolveView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel = ResolveViewModel()
     @State private var pastedFromClipboard = false
+    /// 已消费过的深链接令牌（避免同一次唤起重复触发解析）
+    @State private var handledLinkToken = 0
 
     var body: some View {
         NavigationView {
@@ -34,14 +36,26 @@ struct ResolveView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        appState.resolveInput = ""
-                        viewModel.input = ""
-                        viewModel.linkDialog = nil
-                    } label: {
-                        Image(systemName: "xmark.circle")
+                    HStack(spacing: 14) {
+                        if !viewModel.files.isEmpty {
+                            Button {
+                                viewModel.toggleSelectionMode()
+                            } label: {
+                                Image(systemName: viewModel.selectionMode
+                                    ? "checkmark.rectangle"
+                                    : "checklist")
+                            }
+                        }
+                        Button {
+                            appState.resolveInput = ""
+                            viewModel.input = ""
+                            viewModel.linkDialog = nil
+                            viewModel.clearSelection()
+                        } label: {
+                            Image(systemName: "xmark.circle")
+                        }
+                        .opacity(viewModel.input.isEmpty ? 0 : 1)
                     }
-                    .opacity(viewModel.input.isEmpty ? 0 : 1)
                 }
             }
             .sheet(item: $viewModel.linkDialog) { dialog in
@@ -53,6 +67,17 @@ struct ResolveView: View {
                 )
             }
             .onAppear { syncClipboardIfNeeded() }
+            // 深链接消费：填入输入框并自动解析（对应 Android LinkOpenScreen 的一键直达）
+            .onChange(of: appState.pendingDeepLink?.token) { token in
+                guard let token = token, token != handledLinkToken,
+                      let request = appState.pendingDeepLink else { return }
+                handledLinkToken = token
+                appState.consumeDeepLink(token: token)
+                viewModel.input = request.text
+                appState.resolveInput = request.text
+                pastedFromClipboard = true
+                Task { await viewModel.parseAndOpen() }
+            }
         }
         .navigationViewStyle(.stack)
     }
@@ -162,18 +187,78 @@ struct ResolveView: View {
 
             Divider()
 
-            List(viewModel.files) { file in
-                FileRow(file: file, busy: viewModel.busyFileId == file.id) {
-                    Task {
-                        if file.isdir {
-                            await viewModel.open(file)
-                        } else {
-                            await viewModel.requestDownload(file)
+            List {
+                ForEach(viewModel.files) { file in
+                    FileRow(
+                        file: file,
+                        busy: viewModel.busyFileId == file.id,
+                        selectionMode: viewModel.selectionMode,
+                        selected: viewModel.selectedFileIds.contains(file.id),
+                        onTap: {
+                            Task {
+                                if viewModel.selectionMode {
+                                    viewModel.toggleSelection(file)
+                                } else if file.isdir {
+                                    await viewModel.open(file)
+                                } else {
+                                    await viewModel.requestDownload(file)
+                                }
+                            }
                         }
-                    }
+                    )
                 }
             }
             .listStyle(.plain)
+
+            if viewModel.selectionMode {
+                selectionBar
+            }
+        }
+    }
+
+    /// 多选底栏：全选 / 下载 N 个 / 取消
+    private var selectionBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 12) {
+                Button(viewModel.selectedFileIds.isEmpty ? "全选" : "清空") {
+                    if viewModel.selectedFileIds.isEmpty {
+                        viewModel.selectAllDownloadable()
+                    } else {
+                        viewModel.clearSelection()
+                    }
+                }
+                .font(.subheadline)
+                .disabled(viewModel.downloadableFiles.isEmpty)
+
+                if !viewModel.batchStatus.isEmpty {
+                    HStack(spacing: 6) {
+                        ProgressView().scaleEffect(0.8)
+                        Text(viewModel.batchStatus)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                Button {
+                    Task { await viewModel.downloadSelected() }
+                } label: {
+                    Text("下载 \(viewModel.selectedFileIds.count) 个")
+                        .frame(maxWidth: 110)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.selectedFileIds.isEmpty || viewModel.isWorking)
+
+                Button("取消") {
+                    viewModel.toggleSelectionMode()
+                }
+                .font(.subheadline)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color(.secondarySystemBackground))
         }
     }
 
@@ -203,11 +288,22 @@ struct ResolveView: View {
 private struct FileRow: View {
     let file: ShareFile
     let busy: Bool
+    let selectionMode: Bool
+    let selected: Bool
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
+                if selectionMode {
+                    Image(systemName: file.isdir
+                        ? "square.dimming"
+                        : (selected ? "checkmark.circle.fill" : "circle"))
+                        .font(.title3)
+                        .foregroundColor(file.isdir ? Color(.systemGray3) : (selected ? YunXTheme.brand : .secondary))
+                        .frame(width: 24)
+                }
+
                 Image(systemName: file.isdir ? "folder.fill" : iconForFile(file.fname))
                     .font(.title3)
                     .foregroundColor(file.isdir ? .yellow : .secondary)
@@ -224,17 +320,19 @@ private struct FileRow: View {
 
                 Spacer()
 
-                if busy {
-                    ProgressView()
-                } else {
-                    Image(systemName: file.isdir ? "chevron.right" : "arrow.down.circle")
-                        .foregroundColor(file.isdir ? .secondary : YunXTheme.brand)
+                if !selectionMode {
+                    if busy {
+                        ProgressView()
+                    } else {
+                        Image(systemName: file.isdir ? "chevron.right" : "arrow.down.circle")
+                            .foregroundColor(file.isdir ? .secondary : YunXTheme.brand)
+                    }
                 }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(busy)
+        .disabled(busy && !selectionMode)
     }
 
     private func iconForFile(_ name: String) -> String {

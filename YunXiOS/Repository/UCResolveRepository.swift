@@ -190,9 +190,11 @@ private func delay(ms: Int) async {
 /// 与夸克 API 结构一致，仅域名/UA/pr 参数不同。
 final class UCApi {
 
-    /// Cookie 回写接收器（推荐由 UCAccountRepository 注入并落库）：
+    /// Cookie 回写接收器：`(合并后的最新 Cookie, 本次请求所用的 Cookie)`。
     /// 每次响应把 Set-Cookie 合并后的最新 Cookie 回调，保持 __puus/__pus 始终新鲜。
-    var cookieSink: ((String) -> Void)?
+    /// ★ 与夸克同理：带上本次请求的 Cookie，回写时才能只落到**该凭证所属的账号行**，
+    ///   避免多账号下载时把别的账号的 __puus 合并进主账号（CDN 412/403）。
+    var cookieSink: ((String, String) -> Void)?
 
     /// 游客态令牌 `__pugs`（未登录取链响应 Set-Cookie 下发，3 小时有效）。
     /// UC 下载层只认这一个 cookie：缺它 OSS 直链直接 403（RequestDeniedByCallback）。
@@ -439,7 +441,7 @@ final class UCApi {
                 "Referer": UCConstants.DOWNLOAD_REFERER,
             ])
             let merged = UCCookieUtil.mergeFromSetCookies(original: cookie, setCookies: resp.setCookies)
-            if merged != cookie { cookieSink?(merged) }
+            if merged != cookie { cookieSink?(merged, cookie) }
             return merged
         } catch {
             return nil
@@ -913,7 +915,7 @@ final class UCApi {
         let setCookies = resp.setCookies
         if setCookies.isEmpty || original.isEmpty { return }
         let merged = UCCookieUtil.mergeFromSetCookies(original: original, setCookies: setCookies)
-        if merged != original { cookieSink?(merged) }
+        if merged != original { cookieSink?(merged, original) }
     }
 
     /// 游客取链的服务端错误码 → 中文提示（错误码表对齐 panweb-parser 的 UC 适配器）
@@ -951,7 +953,20 @@ final class UCResolveRepository: ShareResolveRepository {
     /// 常见视频扩展名（分享视频走 video_preview 原画直链绕过会员墙）
     private let videoExts: Set<String> = ["mp4", "mkv", "mov", "avi", "webm", "flv", "ts", "m3u8", "wmv", "rmvb"]
 
-    init() {}
+    init() {
+        // Cookie 回写接线（基线缺失）：与夸克同理，按「本次请求的 Cookie」反查账号行落库，
+        // 只写对应那一行，避免多账号轮换取链时把别的账号的 __puus 合进主账号导致 412/403。
+        api.cookieSink = { merged, requestCookie in
+            let platform = SharePlatform.uc
+            Task { @MainActor in
+                AccountStore.shared.writeBackCookieByRequest(
+                    merged: merged,
+                    requestCookie: requestCookie,
+                    platform: platform
+                )
+            }
+        }
+    }
 
     private func isVideo(_ name: String) -> Bool {
         let ext = name.split(separator: ".").last.map { String($0).lowercased() } ?? ""

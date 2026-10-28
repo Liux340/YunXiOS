@@ -51,6 +51,16 @@ targets:
           NSAllowsArbitraryLoads: true
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # 深链接：自有协议 yunx://resolve?url=<编码链接>&pwd=<提取码>
+        # 对应 Android 的 com.yunx.app.link.YunxLink 注册项。
+        # ★ 网盘域名（pan.quark.cn 等）无法在 iOS 上做 Universal Link 接管：
+        #   那要求域主在 /.well-known/apple-app-site-association 放校验文件，第三方网盘不会配合。
+        #   因此 iOS 侧从外部拿链接的路径 = yunx:// + 「分享 → 云析」Share Extension。
+        CFBundleURLTypes:
+          - CFBundleURLName: com.yunx.app.ios.deeplink
+            CFBundleURLSchemes:
+              - yunx
+
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yunx.app.ios
@@ -59,3 +69,30 @@ targets:
         GENERATE_INFOPLIST_FILE: "NO"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+  # 单元测试：深链接与多账号槽位规则（纯逻辑，跑在模拟器上）
+  YunXiOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: YunXiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yunx.app.ios.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+        IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+
+schemes:
+  YunXiOS:
+    build:
+      targets:
+        YunXiOS: all
+    test:
+      targets:
+        - YunXiOSTests
+      config: Debug
+    # 显式声明以保持与基线一致的 archive scheme（CI 用 -scheme YunXiOS）
+    shareScheme: true
+

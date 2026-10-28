@@ -8,6 +8,26 @@
 import SwiftUI
 import WebKit
 
+/// 网页登录态清理（对应 Android MultiAccountViewModel.clearWebSession）
+enum WebSessionCleaner {
+
+    /**
+     * 清空 WKWebView 的 Cookie 与网站数据。
+     *
+     * ★ 「添加账号」前必须清一次：网页登录型平台（夸克 / UC / 百度 / 139 / 115）的登录页会把
+     *   WebView 里**已有的**登录态自动检测出来并保存 —— 于是「添加账号」加进来的还是同一个账号，
+     *   只会多出一行重复记录。清 WebView 只影响网页登录态，已落库的账号不受影响
+     *   （各平台 API 用的是库里的 Cookie，不是 WebView）。
+     * ★ 该平台最后一个账号被退出时也清一次：残留 Cookie 会在下次打开登录页时把用户自动登回旧账号，
+     *   让「退出」形同虚设。
+     */
+    static func clear() {
+        let store = WKWebsiteDataStore.default()
+        // 全量清理已包含 Cookie；不传 completion 里的等待逻辑，登录页随后会重新加载
+        store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {}
+    }
+}
+
 /// WKWebView 封装
 struct WebViewContainer: UIViewRepresentable {
     let urlString: String

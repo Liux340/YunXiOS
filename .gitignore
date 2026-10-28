@@ -15,3 +15,8 @@ DerivedData/
 xcuserdata/
 *.moved-aside
 .env
+
+# 本地基线备份（移植过程中的原始文件快照）
+.baseline_backup/
+build/
+*.xcodeproj/

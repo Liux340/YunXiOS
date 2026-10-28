@@ -73,6 +73,10 @@ struct RootView: View {
             if !onboardingDone { showOnboarding = true }
             appState.settings.applyProxy()
         }
+        // 深链接到达时切到解析页（对应 Android 收到 intent 后打开解析页并填入）
+        .onChange(of: appState.pendingDeepLink?.token) { _ in
+            if appState.pendingDeepLink != nil { tab = .resolve }
+        }
         .sheet(isPresented: $showOnboarding) {
             OnboardingView {
                 onboardingDone = true

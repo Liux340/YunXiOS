@@ -156,8 +156,12 @@ enum QuarkCookieUtil {
 /// 夸克 API 封装：账号验证 + 分享解析 + 下载直链。
 final class QuarkApi {
 
-    /// Cookie 回写接收器：每次响应把 Set-Cookie 合并后的最新 Cookie 回调，保持 __puus/__pus 新鲜。
-    var cookieSink: ((String) -> Void)?
+    /// Cookie 回写接收器：`(合并后的最新 Cookie, 本次请求所用的 Cookie)`。
+    /// 每次响应把 Set-Cookie 合并后的最新 Cookie 回调，保持 __puus/__pus 新鲜。
+    /// ★ 带上「本次请求的 Cookie」，是为了让上层只回写**这一份凭证所属的账号行**：多账号下载
+    ///   （C1/C2）会拿别的账号取链，把它的 __puus 合并进主账号那行会让会话签名与 uid 对不上（412）。
+    ///   基线版本此回调从未接线（会话续期不落库），本次一并接上。
+    var cookieSink: ((String, String) -> Void)?
 
     /// 游客态令牌 `__pugs`（未登录访问分享时由响应 Set-Cookie 下发，约 3 小时有效）。
     /// 夸克游客直链（dl-guest-*）必须回带该令牌，缺了 CDN 直接 412；进程内复用。
@@ -446,7 +450,7 @@ final class QuarkApi {
                 ]
             )
             let merged = QuarkCookieUtil.mergeFromSetCookies(cookie, response.setCookies)
-            if merged != cookie { cookieSink?(merged) }
+            if merged != cookie { cookieSink?(merged, cookie) }
             return merged
         } catch {
             return nil
@@ -800,7 +804,7 @@ final class QuarkApi {
         if setCookies.isEmpty { return }
         if original.isEmpty { return }
         let merged = QuarkCookieUtil.mergeFromSetCookies(original, setCookies)
-        if merged != original { cookieSink?(merged) }
+        if merged != original { cookieSink?(merged, original) }
     }
 }
 
@@ -812,7 +816,20 @@ final class QuarkResolveRepository: ShareResolveRepository {
 
     private let api = QuarkApi()
 
-    init() {}
+    init() {
+        // Cookie 回写接线（基线缺失）：响应带 Set-Cookie 时按「本次请求的 Cookie」反查账号行落库，
+        // 保持 __puus/__pus 新鲜；反查保证只写对应那一行，多账号轮换取链时不会串号（412）。
+        api.cookieSink = { merged, requestCookie in
+            let platform = SharePlatform.quark
+            Task { @MainActor in
+                AccountStore.shared.writeBackCookieByRequest(
+                    merged: merged,
+                    requestCookie: requestCookie,
+                    platform: platform
+                )
+            }
+        }
+    }
 
     /// 创建分享会话：解析链接 → 获取 stoken（请求体携带提取码）。
     func createSession(link: String, pwd: String?, cookie: String) async throws -> ShareSession {

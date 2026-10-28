@@ -13,6 +13,13 @@ struct SettingsView: View {
     @ObservedObject private var settings = SettingsStore.shared
     @State private var showResetConfirm = false
 
+    /// 「链接唤起」的接管数量摘要
+    private var linkOpenSummary: String {
+        let on = LinkOpenTarget.allCases.filter { settings.linkOpen($0) }.count
+        let total = LinkOpenTarget.allCases.count
+        return on == total ? "全部接管" : "已接管 \(on)/\(total)"
+    }
+
     var body: some View {
         NavigationView {
             Form {
@@ -67,6 +74,35 @@ struct SettingsView: View {
                     ))
                 } header: {
                     Text("外观与交互")
+                }
+
+                Section {
+                    NavigationLink {
+                        LinkOpenSettingsView().environmentObject(appState)
+                    } label: {
+                        HStack {
+                            Text("链接唤起")
+                            Spacer()
+                            Text(linkOpenSummary).font(.caption).foregroundColor(.secondary)
+                        }
+                    }
+
+                    NavigationLink {
+                        MultiAccountDownloadSettingsView()
+                    } label: {
+                        HStack {
+                            Text("多账号下载")
+                            ExperimentalBadge()
+                            Spacer()
+                            Text(settings.multiAccountDownload ? "已开启" : "默认关闭")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("集成与提速")
+                } footer: {
+                    Text("「链接唤起」管理哪些分享链接由云析接住；「多账号下载」为实验性功能，需先在网盘页为同一平台登录多个账号。")
                 }
 
                 Section {

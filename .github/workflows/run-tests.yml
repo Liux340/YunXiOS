@@ -1,0 +1,64 @@
+name: Run Unit Tests
+
+# 深链接 / 多账号槽位规则的纯逻辑单测（在 iOS 模拟器上跑）
+# 与 build-ipa.yml 独立：测试失败不会挡住出包，但会明确指出移植逻辑哪里不对。
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: XCTest (iOS Simulator)
+    runs-on: macos-15
+    timeout-minutes: 40
+
+    env:
+      PROJECT_NAME: YunXiOS
+      SCHEME_NAME: YunXiOS
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: |
+          brew update >/dev/null 2>&1 || true
+          brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: List available simulators
+        run: xcrun simctl list devices available | grep -E "iPhone" | head -20
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild test \
+            -project "${PROJECT_NAME}.xcodeproj" \
+            -scheme "${SCHEME_NAME}" \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build/test.log
+
+      - name: Show failures
+        if: failure()
+        run: |
+          echo "==================== 测试/编译错误 ===================="
+          if [ -f build/test.log ]; then
+            grep -E "error:|failed|XCTAssert" build/test.log | head -80 || true
+          fi
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: build/test.log
+          if-no-files-found: ignore

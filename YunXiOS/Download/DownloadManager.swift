@@ -64,12 +64,15 @@ final class DownloadManager: ObservableObject {
     // MARK: - 对外操作
 
     /// 入队一个下载任务，返回任务 id
+    /// - Parameter accountId: 取链所用的账号主键（多账号下载时随直链一起带过来，
+    ///   完成后按**同一账号**清理临时转存目录）。nil = 主账号 / 游客。
     @discardableResult
     func enqueue(
         link: DownloadLink,
         platform: SharePlatform,
         relativeDirectory: String,
-        headers: [String: String]
+        headers: [String: String],
+        accountId: String? = nil
     ) -> String {
         let platformId = DownloadPlatformId.from(platform)
         let safe = DownloadPathPolicy.sanitize(
@@ -97,6 +100,7 @@ final class DownloadManager: ObservableObject {
             headersCipher: DownloadStore.encryptHeaders(headers),
             guestCookieCipher: DownloadStore.encryptGuestCookie(link.guestCookie),
             cleanupDirFid: link.cleanupDirFid,
+            accountId: accountId,
             completedChunks: [],
             supportsRange: true,
             blockSize: 0,
@@ -297,10 +301,12 @@ final class DownloadManager: ObservableObject {
         AppStateToast.show("已下载：\(tasks[index].filename)")
 
         // 下载完成后清理临时转存目录（夸克等平台）
+        // ★ 按「取链时用的那个账号」清理：多账号下载轮换取链时，临时目录建在对应账号的网盘里，
+        //   用主账号的凭证去删只会删不掉（甚至误删主账号的同名目录）。账号已退出则回退主账号。
         if let dirFid = runtime.cleanupDirFid, !dirFid.isEmpty,
            let platform = SharePlatform(rawValue: runtime.platform),
            let repository = PlatformRegistry.shared.repository(for: platform) {
-            let cookie = AccountStore.shared.credential(for: platform)
+            let cookie = AccountStore.shared.cleanupCredential(for: platform, accountId: tasks[index].accountId)
             Task {
                 await repository.cleanupTempDir(dirFid: dirFid, cookie: cookie)
             }

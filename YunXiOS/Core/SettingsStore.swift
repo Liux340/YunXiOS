@@ -69,6 +69,47 @@ final class SettingsStore: ObservableObject {
         set { defaults.set(newValue, forKey: "onboarding_done") }
     }
 
+    // MARK: - 链接唤起（对应 Android LinkOpener 的组件启停意愿）
+
+    /// 某个深链接注册项是否接管（默认开，与 Android 清单默认 enabled 一致）
+    func linkOpen(_ target: LinkOpenTarget) -> Bool {
+        guard let object = defaults.object(forKey: target.prefKey) else { return true }
+        if let boolValue = object as? Bool { return boolValue }
+        return (object as? NSNumber)?.boolValue ?? true
+    }
+
+    func setLinkOpen(_ target: LinkOpenTarget, enabled: Bool) {
+        defaults.set(enabled, forKey: target.prefKey)
+        objectWillChange.send()
+    }
+
+    // MARK: - 多账号下载（实验性 C1 / C2，对应 Android SettingsRepository）
+
+    /// 多账号下载（**实验性**，代号 C1）：默认关。
+    /// 批量下载按文件轮换该网盘的不同账号取链，绕开单账号并发/限速。
+    var multiAccountDownload: Bool {
+        get { defaults.bool(forKey: "multi_account_download") }
+        set {
+            defaults.set(newValue, forKey: "multi_account_download")
+            // 关闭 C1 时强制关掉 C2（C2 依赖 C1）：口径与 Android 集中在这一处
+            if !newValue { defaults.set(false, forKey: "multi_source_download") }
+            objectWillChange.send()
+        }
+    }
+
+    /// 单文件多源分片（**实验性**，代号 C2）：默认关，**依赖 multiAccountDownload**。
+    var multiSourceDownload: Bool {
+        get { defaults.bool(forKey: "multi_source_download") && multiAccountDownload }
+        set {
+            // C2 只能在 C1 开着时打开
+            defaults.set(newValue && multiAccountDownload, forKey: "multi_source_download")
+            objectWillChange.send()
+        }
+    }
+
+    /// C2 是否真正生效（开关开着且 C1 也开着）
+    func multiSourceActive() -> Bool { multiAccountDownload && multiSourceDownload }
+
     /// 代理主机
     var proxyHost: String {
         get { defaults.string(forKey: "proxy_host") ?? "" }

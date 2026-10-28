@@ -16,6 +16,19 @@ struct YunXiOSApp: App {
             RootView()
                 .environmentObject(appState)
                 .preferredColorScheme(nil)
+                // 深链接入口（对应 Android MainActivity 收到 intent）：
+                // yunx:// 自有协议 / 磁力 / Share Extension 传进来的链接文本，都走这一条路由。
+                .onOpenURL { url in
+                    let outcome = DeepLinks.route(url: url, settings: appState.settings)
+                    switch outcome {
+                    case .text(let text), .magnet(let text):
+                        appState.handleDeepLink(text)
+                    case .disabled(let target):
+                        appState.show("「链接唤起」中已关闭：\(target.displayName)")
+                    case .ignored:
+                        break
+                    }
+                }
         }
     }
 }

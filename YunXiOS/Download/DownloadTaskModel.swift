@@ -58,6 +58,13 @@ struct DownloadTaskModel: Codable, Identifiable, Hashable {
     var guestCookieCipher: String
     /// 下载完成后需要清理的临时转存目录 fid
     var cleanupDirFid: String?
+    /**
+     * 取链所用的账号主键（多账号下载 C1/C2）。
+     * ★ 临时转存目录建在**那个账号**的网盘里，完成后必须用同一账号的凭证清理，
+     *   否则要么删不掉、要么误删主账号的同名目录。nil = 单账号任务 / 游客任务 / 旧数据，
+     *   按主账号口径处理（可选类型缺键解码为 nil，向后兼容）。
+     */
+    var accountId: String?
     /// 已完成分片
     var completedChunks: [ChunkRange]
     /// 服务器是否支持 Range（不支持则退化为单流）

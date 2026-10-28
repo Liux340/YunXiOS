@@ -112,3 +112,20 @@ struct PlatformBadge: View {
             .clipShape(Capsule())
     }
 }
+
+/// 实验性特性徽标（对应 ui/components/ExperimentalBadge.kt）
+/// 挂在开启前需要二次确认的实验性开关右上角，样式与上游同一份。
+struct ExperimentalBadge: View {
+    var label: String = "实验性"
+
+    var body: some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .foregroundColor(.orange)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.orange.opacity(0.15))
+            .clipShape(Capsule())
+    }
+}
+

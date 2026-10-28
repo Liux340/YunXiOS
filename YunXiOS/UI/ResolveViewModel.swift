@@ -78,10 +78,19 @@ final class ResolveViewModel: ObservableObject {
     @Published var linkDialog: LinkDialog?
     @Published var busyFileId: String?
 
+    /// 多选模式（批量下载 = C1 多账号轮换的落点）
+    @Published var selectionMode = false
+    @Published var selectedFileIds: Set<String> = []
+    /// 批量下载进行中的提示（"已取链 3/12…"）
+    @Published var batchStatus: String = ""
+
     private var session: ShareSession?
     private var dirStack: [String] = []
     private var dirFid: String = "0"
     private var directoryPath: [String] = []
+
+    /// 批量取链的轮换游标：按文件依次分配账号，绕开单账号并发/限速
+    private var rotationCursor = 0
 
     private let accounts = AccountStore.shared
     private let registry = PlatformRegistry.shared
@@ -175,7 +184,131 @@ final class ResolveViewModel: ObservableObject {
         return registry.repository(for: platform)
     }
 
-    // MARK: - 取直链
+    // MARK: - 取直链（单文件 / 批量）
+
+    /// 用一份凭证给单个文件取直链（登录态）。夸克优先免转存，失败回退「转存 → 取链」。
+    private func resolveLink(
+        file: ShareFile,
+        repository: ShareResolveRepository,
+        session: ShareSession,
+        platform: SharePlatform,
+        credential: String
+    ) async throws -> DownloadLink {
+        if platform == .quark {
+            do {
+                return try await repository.getShareDownloadLinkWithoutSave(
+                    session: session, file: file, cookie: credential
+                )
+            } catch {
+                return try await repository.getShareDownloadLink(
+                    session: session, file: file, cookie: credential
+                )
+            }
+        }
+        return try await repository.getShareDownloadLink(
+            session: session, file: file, cookie: credential
+        )
+    }
+
+    /// 本次批量下载可轮换的凭证（C1）：开关关闭或该平台不足两个账号时，只返回主账号那一份。
+    private func rotationCredentials(platform: SharePlatform, fallback: String) -> [(id: String, credential: String)] {
+        let rotated = accounts.credentialsForRotation(for: platform)
+        guard rotated.count >= 2 else {
+            return [(id: accounts.record(for: platform)?.id ?? platform.rawValue, credential: fallback)]
+        }
+        return rotated.map { (id: $0.accountId, credential: $0.credential) }
+    }
+
+    /// 当前目录里可下载的文件（目录不参与批量：iOS 侧未做递归列举）
+    var downloadableFiles: [ShareFile] {
+        files.filter { !$0.isdir }
+    }
+
+    func toggleSelectionMode() {
+        selectionMode.toggle()
+        if !selectionMode { selectedFileIds.removeAll() }
+    }
+
+    func toggleSelection(_ file: ShareFile) {
+        guard !file.isdir else { return }
+        if selectedFileIds.contains(file.id) {
+            selectedFileIds.remove(file.id)
+        } else {
+            selectedFileIds.insert(file.id)
+        }
+    }
+
+    func selectAllDownloadable() {
+        selectedFileIds = Set(downloadableFiles.map { $0.id })
+    }
+
+    func clearSelection() {
+        selectedFileIds.removeAll()
+    }
+
+    /**
+     * 批量下载选中项：按文件轮换该平台的不同账号取链（实验性 C1），
+     * 取到的直链连同**它自己的请求头**一起入队 —— 直链与凭证必须同源，混搭会被 CDN 拒（412/403）。
+     *
+     * ★ 单个文件取链失败不再静默吞掉：统计成功/失败数量，并在提示里带上首个失败原因
+     *   （对齐上游 #178 的修复）。
+     */
+    func downloadSelected() async {
+        guard let repository = currentRepository(), let session = session, let platform = platform else { return }
+        let chosen = downloadableFiles.filter { selectedFileIds.contains($0.id) }
+        guard !chosen.isEmpty else {
+            errorMessage = "请先勾选要下载的文件"
+            return
+        }
+
+        let credentials = rotationCredentials(platform: platform, fallback: accounts.credential(for: platform))
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false; batchStatus = "" }
+
+        var success = 0
+        var firstFailure: String?
+        rotationCursor = 0
+
+        for (index, file) in chosen.enumerated() {
+            batchStatus = "正在取链 \(index + 1)/\(chosen.count)…"
+            let pair = credentials[rotationCursor % credentials.count]
+            rotationCursor += 1
+            busyFileId = file.id
+            do {
+                let link = try await resolveLink(
+                    file: file,
+                    repository: repository,
+                    session: session,
+                    platform: platform,
+                    credential: pair.credential
+                )
+                let directory = ([shareTitle] + directoryPath).filter { !$0.isEmpty }.joined(separator: "/")
+                DownloadManager.shared.enqueue(
+                    link: link,
+                    platform: platform,
+                    relativeDirectory: directory,
+                    headers: DownloadHeaders.headers(for: platform, cookie: pair.credential),
+                    accountId: pair.id
+                )
+                success += 1
+            } catch {
+                if firstFailure == nil { firstFailure = message(of: error) }
+            }
+        }
+        busyFileId = nil
+
+        let failed = chosen.count - success
+        if failed == 0 {
+            AppStateToast.show("已加入下载：\(success) 个文件")
+        } else if success == 0 {
+            errorMessage = "取链失败（\(failed) 个）：\(firstFailure ?? "未知原因")"
+        } else {
+            errorMessage = "已加入 \(success) 个，\(failed) 个失败：\(firstFailure ?? "未知原因")"
+        }
+        selectedFileIds.removeAll()
+        selectionMode = false
+    }
 
     func requestDownload(_ file: ShareFile) async {
         guard let repository = currentRepository(), let session = session, let platform = platform else { return }
@@ -191,16 +324,10 @@ final class ResolveViewModel: ObservableObject {
         do {
             let link: DownloadLink
             if loggedIn {
-                if platform == .quark {
-                    // 夸克优先免转存取链，失败再回退「转存 → 取链」（与 Android 一致）
-                    do {
-                        link = try await repository.getShareDownloadLinkWithoutSave(session: session, file: file, cookie: cookie)
-                    } catch {
-                        link = try await repository.getShareDownloadLink(session: session, file: file, cookie: cookie)
-                    }
-                } else {
-                    link = try await repository.getShareDownloadLink(session: session, file: file, cookie: cookie)
-                }
+                link = try await resolveLink(
+                    file: file, repository: repository, session: session,
+                    platform: platform, credential: cookie
+                )
             } else {
                 // 游客态：目前夸克 / UC 支持
                 link = try await repository.getGuestShareDownloadLink(session: session, file: file)

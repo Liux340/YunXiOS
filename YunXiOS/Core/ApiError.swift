@@ -30,4 +30,8 @@ enum YunXError {
 
     /// 无法识别分享链接
     static var unrecognizedLink: ApiError { ApiError("无法识别分享链接") }
+
+    /// 凭证暂时不可读（密钥尚未就绪 / 密文损坏）。
+    /// ★ 这是「读不出来」而不是「没有账号」：调用方必须保留密文，绝不能据此清空或覆盖凭证。
+    static var credentialUnreadable: ApiError { ApiError("本机凭证暂时无法解密，请稍后重试") }
 }
