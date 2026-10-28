@@ -2,7 +2,7 @@ name: YunXiOS
 options:
   bundleIdPrefix: com.yunx
   deploymentTarget:
-    iOS: "15.0"
+    iOS: "17.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
   developmentLanguage: zh-Hans
@@ -12,7 +12,8 @@ settings:
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
-    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    # 目标设备为 iOS 17：抬高最低版本可直接消掉「API 仅 iOS 16+ 可用」这类编译错误
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     # 未签名构建：CI 直接用 xcodebuild archive 产出未签名包，无需证书
     CODE_SIGN_STYLE: Manual
     CODE_SIGNING_REQUIRED: "NO"
@@ -82,7 +83,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yunx.app.ios.tests
         GENERATE_INFOPLIST_FILE: "YES"
-        IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+        # 与主 target 保持一致；不一致会让 xcodebuild test 因版本冲突失败
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
 
 schemes:
   # ★ 只写 XcodeGen 认识的键（此前用了 shareScheme，未知键会让 xcodegen 直接报错，

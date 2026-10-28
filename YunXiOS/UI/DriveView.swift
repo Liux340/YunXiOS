@@ -247,8 +247,9 @@ struct AccountListSheet: View {
                 }
             }
             .sheet(item: $renaming) { target in
-                // ★ 备注输入不能用 .alert + TextField：alert 内的文本框是 iOS 16+ 才支持的，
-                //   本工程 deploymentTarget 是 iOS 15，必须走独立 sheet。
+                // ★ 备注用独立 sheet 而不是 .alert + TextField：
+                //   alert 里的可编辑文本框要到 iOS 16+ 才支持，且在小屏上键盘顶开后可点区域很小，
+                //   独立 sheet 的输入体验也更接近 Android 侧的对话框实现。
                 RemarkEditorSheet(initialText: target.remark) { text in
                     accounts.setRemark(platform, id: target.id, remark: text)
                     renaming = nil
@@ -345,7 +346,7 @@ struct AccountListSheet: View {
     }
 }
 
-/// 备注编辑器（iOS 15 兼容：alert 内不能放可编辑 TextField）
+/// 备注编辑器（独立 sheet：alert 内放可编辑 TextField 的输入体验差，iOS 16 才支持）
 struct RemarkEditorSheet: View {
     let initialText: String
     let onSave: (String) -> Void
