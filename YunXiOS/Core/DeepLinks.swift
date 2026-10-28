@@ -90,6 +90,12 @@ enum DeepLinks {
      */
     @MainActor
     static func route(url: URL, settings: SettingsStore) -> DeepLinkOutcome {
+        let raw = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+        // ★ yunx:// 自有协议先过自己的门禁：拆包后只剩内层平台信息，若不在此拦截，
+        //   设置页关「yunx:// 自有协议」就永远不会被校验（审查报告 #6）。
+        if raw.lowercased().hasPrefix(schemePrefix), !settings.linkOpen(.yunx) {
+            return .disabled(.yunx)
+        }
         guard let text = text(fromURL: url) else { return .ignored }
         return route(text: text, settings: settings)
     }

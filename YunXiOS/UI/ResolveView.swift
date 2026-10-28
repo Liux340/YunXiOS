@@ -66,6 +66,11 @@ struct ResolveView: View {
                     onClose: { viewModel.linkDialog = nil }
                 )
             }
+            // 真机反馈修复：TextEditor 弹起键盘后没有任何收起入口，键盘盖住「开始解析」按钮。
+            // 双保险：键盘上方「完成」工具条 + 点击内容区空白处收起。
+            .keyboardDoneToolbar()
+            .contentShape(Rectangle())
+            .onTapGesture { KeyboardHelper.dismiss() }
             .onAppear {
                 // 顺序要紧：先收深链接，收到就不再做剪贴板自动识别（否则输入框会被覆盖）
                 if !consumePendingDeepLink() {

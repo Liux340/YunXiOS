@@ -8,6 +8,15 @@
 import SwiftUI
 import WebKit
 
+/// WebView 共用常量
+enum WebViewConstants {
+    /// 桌面版 UA（Windows Chrome）：对齐 Android 侧 QuarkConstants/UCApi 等使用的 PC_UA 口径。
+    /// 夸克 / UC / 百度 / 115 等网页登录的「扫码二维码」只在桌面版渲染，
+    /// 移动端 UA 会被引导成「请打开 App」页，导致无法登录（真机反馈 #2）。
+    static let desktopUA =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+}
+
 /// 网页登录态清理（对应 Android MultiAccountViewModel.clearWebSession）
 enum WebSessionCleaner {
 
@@ -42,10 +51,16 @@ struct WebViewContainer: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        // ★ 真机反馈修复（电脑模式登录）：桌面模式需要两个开关一起才生效——
+        //   1) preferredContentMode = .desktop：让网站按桌面版渲染（决定服务端给哪套页面/布局）；
+        //   2) customUserAgent = 桌面 UA：夸克 / UC / 百度 / 115 的登录页靠 UA 判断是否出
+        //      「扫码二维码」，移动端 UA 会被引导成「请打开 App」页，根本无法登录。
+        configuration.defaultWebpagePreferences.preferredContentMode = .desktop
+
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.customUserAgent = WebViewConstants.desktopUA
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
-        webView.customUserAgent = nil
         if let url = URL(string: urlString) {
             webView.load(URLRequest(url: url))
         }

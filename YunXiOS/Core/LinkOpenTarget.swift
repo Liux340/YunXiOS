@@ -75,7 +75,9 @@ enum LinkOpenTarget: String, CaseIterable, Identifiable {
             // Android 的 ACTION_PROCESS_TEXT 在 iOS 没有等价系统入口
             return "iOS 无系统级「选中文本→云析」入口，需借助快捷指令"
         case .share:
-            return "需要在系统分享面板中勾选「云析」（管理… → 显示更多）"
+            // ★ 诚实标注：Share Extension 尚未实现（未签名包侧载扩展的签名链路也更麻烦），
+            //   当前从外部拿链接只有 yunx:// 一条路。此项保留是为了与上游 13 项清单同构。
+            return "iOS 版尚未内置「分享 → 云析」扩展，此项暂不生效"
         default:
             return nil
         }
@@ -92,7 +94,8 @@ enum LinkOpenTarget: String, CaseIterable, Identifiable {
         for character in rawValue {
             if character.isUppercase {
                 if !result.isEmpty { result.append("_") }
-                result.append(Character(character.lowercased()))
+                // lowercased() 返回 String，用 append(contentsOf:) 明确拼接（不依赖隐式转换）
+                result.append(contentsOf: character.lowercased())
             } else {
                 result.append(character)
             }

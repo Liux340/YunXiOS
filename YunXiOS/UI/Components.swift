@@ -113,6 +113,34 @@ struct PlatformBadge: View {
     }
 }
 
+/// 键盘辅助（真机反馈：解析页键盘弹起后无处可点收起，盖住「开始解析」按钮）
+@MainActor
+enum KeyboardHelper {
+    /// 让当前第一响应者放弃焦点 = 收起键盘
+    static func dismiss() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil, from: nil, for: nil
+        )
+    }
+}
+
+extension View {
+    /// 在键盘上方挂一条「完成」工具条（仅键盘可见时出现），点击收起键盘。
+    /// SwiftUI 的 TextEditor/TextField 没有默认收起手势，凡是能弹键盘的页面都应加上。
+    func keyboardDoneToolbar() -> some View {
+        toolbar {
+            ToolbarItem(placement: .keyboard) {
+                HStack {
+                    Spacer()
+                    Button("完成") { KeyboardHelper.dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+}
+
 /// 实验性特性徽标（对应 ui/components/ExperimentalBadge.kt）
 /// 挂在开启前需要二次确认的实验性开关右上角，样式与上游同一份。
 struct ExperimentalBadge: View {

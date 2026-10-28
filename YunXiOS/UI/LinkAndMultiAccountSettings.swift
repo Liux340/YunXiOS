@@ -51,7 +51,7 @@ struct LinkOpenSettingsView: View {
             }
 
             Section {
-                Text("iOS 上从外部拿分享链接的两条路径：\n1) yunx://resolve?url=… 自有协议；\n2) 在浏览器 / 其它 App 里点「分享 → 云析」。")
+                Text("iOS 上从外部拿分享链接的可用路径：\nyunx://resolve?url=… 自有协议（快捷指令 / 浏览器 / 其它 App 调用）。\n「分享 → 云析」系统扩展尚未内置；网盘域名的 Universal Link 直开需域主配合，我方无法实现。")
                     .font(.caption2)
                 HStack {
                     Text("网盘域名直开（Universal Link）")

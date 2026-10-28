@@ -74,8 +74,10 @@ struct RootView: View {
             appState.settings.applyProxy()
         }
         // 深链接到达时切到解析页（对应 Android 收到 intent 后打开解析页并填入）
-        .onChange(of: appState.pendingDeepLink?.token) { _ in
-            if appState.pendingDeepLink != nil { tab = .resolve }
+        // ★ 判据用闭包捕获的 newValue，不回读 pendingDeepLink：解析页可能在同一轮变更里
+        //   已把它消费成 nil，而 SwiftUI 不保证父子视图 onChange 的投递顺序——回读会漏切 Tab。
+        .onChange(of: appState.pendingDeepLink?.token) { token in
+            if token != nil { tab = .resolve }
         }
         .sheet(isPresented: $showOnboarding) {
             OnboardingView {
