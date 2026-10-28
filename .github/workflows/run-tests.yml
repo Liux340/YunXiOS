@@ -39,10 +39,12 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build
+          # ★ 必须指定具体模拟器：泛型 destination（generic/platform=iOS Simulator）会被
+          #   xcodebuild 拒绝——「Tests must be run on a concrete device」
           xcodebuild test \
             -project "${PROJECT_NAME}.xcodeproj" \
             -scheme "${SCHEME_NAME}" \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee build/test.log
