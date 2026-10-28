@@ -85,14 +85,19 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "15.0"
 
 schemes:
+  # ★ 只写 XcodeGen 认识的键（此前用了 shareScheme，未知键会让 xcodegen 直接报错，
+  #   从而把两个工作流一起带崩）。archive 用 Release，与 build-ipa.yml 的 -configuration 一致。
   YunXiOS:
     build:
       targets:
         YunXiOS: all
+        # 测试 target 必须进 build 列表并标 [test]，否则 xcodebuild test 不会构建测试 bundle
+        YunXiOSTests: [test]
     test:
       targets:
         - YunXiOSTests
+    run:
       config: Debug
-    # 显式声明以保持与基线一致的 archive scheme（CI 用 -scheme YunXiOS）
-    shareScheme: true
+    archive:
+      config: Release
 

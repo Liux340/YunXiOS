@@ -213,7 +213,6 @@ struct AccountListSheet: View {
     @ObservedObject private var accounts = AccountStore.shared
 
     @State private var renaming: AccountRecord?
-    @State private var renameText = ""
     @State private var quitting: AccountRecord?
 
     var body: some View {
@@ -247,20 +246,15 @@ struct AccountListSheet: View {
                     Button("完成") { presentationMode.wrappedValue.dismiss() }
                 }
             }
-            .alert("备注", isPresented: Binding(
-                get: { renaming != nil },
-                set: { if !$0 { renaming = nil } }
-            )) {
-                TextField("账号备注（留空则显示昵称）", text: $renameText)
-                Button("保存") {
-                    if let target = renaming {
-                        accounts.setRemark(platform, id: target.id, remark: renameText)
-                    }
+            .sheet(item: $renaming) { target in
+                // ★ 备注输入不能用 .alert + TextField：alert 内的文本框是 iOS 16+ 才支持的，
+                //   本工程 deploymentTarget 是 iOS 15，必须走独立 sheet。
+                RemarkEditorSheet(initialText: target.remark) { text in
+                    accounts.setRemark(platform, id: target.id, remark: text)
+                    renaming = nil
+                } onCancel: {
                     renaming = nil
                 }
-                Button("取消", role: .cancel) { renaming = nil }
-            } message: {
-                Text("备注只显示在本机，用于在多个账号间认出它们。")
             }
             .confirmationDialog("退出该账号？", isPresented: Binding(
                 get: { quitting != nil },
@@ -329,7 +323,6 @@ struct AccountListSheet: View {
                 }
 
                 Button("备注") {
-                    renameText = account.remark
                     renaming = account
                 }
                 .font(.caption)
@@ -349,6 +342,41 @@ struct AccountListSheet: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MM-dd HH:mm"
         return "更新于 \(formatter.string(from: Date(timeIntervalSince1970: timestamp)))"
+    }
+}
+
+/// 备注编辑器（iOS 15 兼容：alert 内不能放可编辑 TextField）
+struct RemarkEditorSheet: View {
+    let initialText: String
+    let onSave: (String) -> Void
+    let onCancel: () -> Void
+
+    @State private var text: String = ""
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section {
+                    TextField("账号备注（留空则显示昵称）", text: $text)
+                        .disableAutocorrection(true)
+                } header: {
+                    Text("备注只显示在本机，用于在多个账号间认出它们。")
+                }
+            }
+            .navigationTitle("备注")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("取消", action: onCancel)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("保存") { onSave(text) }
+                        .fontWeight(.semibold)
+                }
+            }
+            .onAppear { text = initialText }
+        }
+        .navigationViewStyle(.stack)
     }
 }
 

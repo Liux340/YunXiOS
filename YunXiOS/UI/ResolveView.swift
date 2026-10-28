@@ -66,17 +66,15 @@ struct ResolveView: View {
                     onClose: { viewModel.linkDialog = nil }
                 )
             }
-            .onAppear { syncClipboardIfNeeded() }
+            .onAppear {
+                // 顺序要紧：先收深链接，收到就不再做剪贴板自动识别（否则输入框会被覆盖）
+                if !consumePendingDeepLink() {
+                    syncClipboardIfNeeded()
+                }
+            }
             // 深链接消费：填入输入框并自动解析（对应 Android LinkOpenScreen 的一键直达）
-            .onChange(of: appState.pendingDeepLink?.token) { token in
-                guard let token = token, token != handledLinkToken,
-                      let request = appState.pendingDeepLink else { return }
-                handledLinkToken = token
-                appState.consumeDeepLink(token: token)
-                viewModel.input = request.text
-                appState.resolveInput = request.text
-                pastedFromClipboard = true
-                Task { await viewModel.parseAndOpen() }
+            .onChange(of: appState.pendingDeepLink?.token) { _ in
+                consumePendingDeepLink()
             }
         }
         .navigationViewStyle(.stack)
@@ -260,6 +258,25 @@ struct ResolveView: View {
             .padding(.vertical, 10)
             .background(Color(.secondarySystemBackground))
         }
+    }
+
+    // MARK: - 深链接消费
+
+    /// 收取待处理的深链接：填入输入框并自动解析。
+    /// 返回 true 表示本次挂载确有深链接被消费（剪贴板自动识别应让位，不要覆盖输入框）。
+    @discardableResult
+    private func consumePendingDeepLink() -> Bool {
+        guard let request = appState.pendingDeepLink, request.token != handledLinkToken else {
+            return false
+        }
+        handledLinkToken = request.token
+        appState.consumeDeepLink(token: request.token)
+        viewModel.input = request.text
+        appState.resolveInput = request.text
+        // 视同「已粘贴」，避免剪贴板自动识别把这条链接又覆盖成剪贴板里的旧内容
+        pastedFromClipboard = true
+        Task { await viewModel.parseAndOpen() }
+        return true
     }
 
     // MARK: - 剪贴板
